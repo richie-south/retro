@@ -117,6 +117,113 @@ describe('snapshot merging', () => {
 	});
 });
 
+describe('shared actions', () => {
+	it('creates trimmed actions, ignores blank input and allows checking and unchecking', () => {
+		const m = new Model(base(), alice);
+		expect(m.actions()).toEqual([]);
+		const before = structuredClone(m.state);
+		expect(m.addAction('  \n ')).toBeUndefined();
+		m.setActionCompleted(voter, true);
+		expect(m.state).toEqual(before);
+		const first = m.addAction('  Schedule a follow-up  ')!;
+		const second = m.addAction('x'.repeat(501))!;
+		expect(m.actions()).toEqual([
+			{ id: first, title: 'Schedule a follow-up', completed: false },
+			{ id: second, title: 'x'.repeat(500), completed: false }
+		]);
+		m.setActionCompleted(first, true);
+		expect(m.actions()[0].completed).toBe(true);
+		m.setActionCompleted(first, false);
+		expect(m.actions()[0].completed).toBe(false);
+		expect(validateSnapshot(m.state)).toEqual(m.state);
+	});
+	it('preserves concurrent additions in the same order and resolves completion changes across peers', () => {
+		const start = base(),
+			a = new Model(start, alice, () => 0),
+			b = new Model(start, bob, () => 0);
+		const first = a.addAction('Plan focus time')!;
+		b.addAction('Review the release process');
+		const aState = structuredClone(a.state);
+		a.receive(validateSnapshot(difference(b.state, start)));
+		b.receive(validateSnapshot(difference(aState, start)));
+		expect(a.actions()).toEqual(b.actions());
+		expect(a.actions().map((action) => action.title)).toEqual([
+			'Plan focus time',
+			'Review the release process'
+		]);
+		const stale = structuredClone(a.state);
+		a.setActionCompleted(first, true);
+		b.receive(validateSnapshot(difference(a.state, stale)));
+		expect(b.actions()[0].completed).toBe(true);
+		b.setActionCompleted(first, false);
+		a.receive(b.state);
+		a.receive(stale);
+		expect(a.actions()).toEqual(b.actions());
+		expect(a.actions()[0].completed).toBe(false);
+		const completed = new Model(a.state, alice, () => 0),
+			unchecked = new Model(a.state, bob, () => 0);
+		completed.setActionCompleted(first, true);
+		unchecked.setActionCompleted(first, true);
+		unchecked.setActionCompleted(first, false);
+		expect(merge(completed.state, unchecked.state)).toEqual(
+			merge(unchecked.state, completed.state)
+		);
+		expect(new Model(merge(completed.state, unchecked.state)).actions()[0].completed).toBe(false);
+	});
+	it('syncs deletions and keeps stale snapshots and concurrent completion changes from restoring actions', () => {
+		const original = new Model(base(), alice);
+		const removed = original.addAction('Remove this next step')!;
+		const kept = original.addAction('Keep this next step')!;
+		const stale = structuredClone(original.state);
+		const peer = new Model(stale, bob);
+		peer.setActionCompleted(removed, true);
+		original.deleteAction(removed);
+		peer.receive(validateSnapshot(difference(original.state, stale)));
+		original.receive(peer.state);
+		original.receive(stale);
+		expect(original.actions()).toEqual([
+			{ id: kept, title: 'Keep this next step', completed: false }
+		]);
+		expect(peer.actions()).toEqual(original.actions());
+		const after = structuredClone(original.state);
+		original.setActionCompleted(removed, true);
+		original.deleteAction(removed);
+		original.deleteAction(voter);
+		expect(original.state).toEqual(after);
+		expect(new Model(validateSnapshot(original.state)).actions()).toEqual(original.actions());
+	});
+	it('validates action titles, completion and deletion in snapshots and partial updates', () => {
+		for (const [field, value] of [
+			['title', ''],
+			['title', '   '],
+			['title', 'x'.repeat(501)],
+			['title', false],
+			['completed', 'true'],
+			['completed', 1],
+			['completed', null],
+			['deleted', false],
+			['deleted', 'true'],
+			['unknown', true]
+		]) {
+			expect(() =>
+				validateSnapshot({
+					version: 1,
+					room,
+					registers: { [`action:${alice}:${field}`]: { value, clock: [1, 0, bob] } }
+				})
+			).toThrow();
+		}
+		for (const value of [true, false]) {
+			const delta = {
+				version: 1,
+				room,
+				registers: { [`action:${alice}:completed`]: { value, clock: [1, 0, bob] } }
+			};
+			expect(validateSnapshot(delta)).toEqual(delta);
+		}
+	});
+});
+
 describe('shared timer', () => {
 	it('shares an absolute deadline, counts down without writes and allows editing and voting after expiry', () => {
 		let now = Date.now();

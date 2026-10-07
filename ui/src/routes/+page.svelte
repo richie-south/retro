@@ -33,6 +33,7 @@
 	const connectionError = $derived(connection.error);
 	let delayedConnectionError = $state('');
 	let newColumn = $state('');
+	let newAction = $state('');
 	let drafts = $state<Record<string, string>>({});
 	let dragged = $state('');
 	let dragTarget = $state<Destination | null>(null);
@@ -68,6 +69,7 @@
 			limit: model.limit,
 			timer: model.timer,
 			remaining: model.remaining(voter),
+			actions: model.actions(),
 			columns: model.columns().map((column) => ({
 				...column,
 				cards: model!.cards(column.id).map((card) => ({
@@ -147,6 +149,7 @@
 		notice = '';
 		drafts = {};
 		newColumn = '';
+		newAction = '';
 		model = new Model(session.state);
 		secret = session.secret;
 		const identityKey = `retro:voter:${session.state.room}`;
@@ -252,6 +255,11 @@
 	function sortByVotes() {
 		edit((m) => m.sortCardsByVotes());
 		announce('Sorted all columns by votes, most votes first.');
+	}
+	function addAction() {
+		if (!newAction.trim()) return;
+		edit((m) => m.addAction(newAction));
+		newAction = '';
 	}
 	function deleteColumn(id: string) {
 		const column = view?.columns.find((c) => c.id === id);
@@ -624,6 +632,52 @@
 					>
 				</form>
 			</div>
+			<section class="actions" aria-labelledby="actions-title">
+				<h2 id="actions-title">Action items</h2>
+				{#if view.actions.length}
+					<ul class="action-list">
+						{#each view.actions as action (action.id)}
+							<li>
+								<label class="action-item" class:completed={action.completed}>
+									<input
+										type="checkbox"
+										checked={action.completed}
+										onchange={(e) =>
+											edit((m) => m.setActionCompleted(action.id, e.currentTarget.checked))}
+									/>
+									<span>{action.title}</span>
+								</label>
+								<button
+									class="text-button remove-action"
+									aria-label={`Remove action ${action.title}`}
+									title="Remove action"
+									onclick={() => edit((m) => m.deleteAction(action.id))}>×</button
+								>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+				<form
+					class="add-action"
+					onsubmit={(e) => {
+						e.preventDefault();
+						addAction();
+					}}
+				>
+					<div class="add-action-controls">
+						<input
+							id="new-action"
+							aria-label="New action"
+							placeholder="New action"
+							maxlength="500"
+							bind:value={newAction}
+						/>
+						<button class="button primary" type="submit" disabled={!newAction.trim()}
+							>＋ Add action</button
+						>
+					</div>
+				</form>
+			</section>
 		</main>
 	{/if}
 	{#if notice}<div class="toast" role="status">{notice}</div>{/if}
@@ -1236,6 +1290,83 @@
 		font-size: 11px;
 		padding: 10px;
 	}
+	.actions {
+		margin-top: 16px;
+		padding: 24px;
+		border: 1px solid #e1e5d9;
+		border-radius: 11px;
+		background: #fffef9;
+	}
+	.actions h2 {
+		margin: 0;
+		font-family: Georgia, serif;
+		font-size: 26px;
+		font-weight: 400;
+	}
+	.action-list {
+		list-style: none;
+		margin: 20px 0;
+		padding: 0;
+	}
+	.action-list li + li {
+		border-top: 1px solid #edf0e5;
+	}
+	.action-list li {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+	}
+	.action-item {
+		flex: 1;
+		min-width: 0;
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+		padding: 14px 0;
+		cursor: pointer;
+		line-height: 1.6;
+	}
+	.action-item input {
+		width: 18px;
+		height: 18px;
+		margin: 2px 0 0;
+		flex-shrink: 0;
+		accent-color: #284f3e;
+		cursor: pointer;
+	}
+	.action-item span {
+		min-width: 0;
+		overflow-wrap: anywhere;
+		white-space: pre-wrap;
+	}
+	.action-item.completed span {
+		text-decoration: line-through;
+		color: #748070;
+	}
+	.remove-action {
+		flex-shrink: 0;
+		font-size: 20px;
+		width: 32px;
+		height: 32px;
+	}
+	.add-action {
+		margin-top: 20px;
+	}
+	.add-action-controls {
+		display: flex;
+		gap: 10px;
+	}
+	.add-action input {
+		flex: 1;
+		min-width: 0;
+		border: 1px solid #dce2d4;
+		padding: 12px;
+		background: #f9faf4;
+		border-radius: 7px;
+	}
+	.add-action button {
+		flex-shrink: 0;
+	}
 	.message {
 		max-width: 100%;
 		border: 1px solid #e4ddc8;
@@ -1312,6 +1443,15 @@
 		margin-bottom: 15px;
 	}
 	@media (max-width: 700px) {
+		.actions {
+			padding: 20px 16px;
+		}
+		.add-action-controls {
+			flex-direction: column;
+		}
+		.add-action button {
+			align-self: flex-start;
+		}
 		.topbar {
 			height: 73px;
 			padding: 0 20px;

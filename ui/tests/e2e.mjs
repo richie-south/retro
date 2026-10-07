@@ -922,6 +922,110 @@ test('export dropdown downloads Markdown and CSV with current edits and shared v
 	}
 });
 
+test('actions synchronize creation, completion and removal and restore from saved links', async () => {
+	const a = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] }),
+		b = await browser.newContext();
+	try {
+		const p = await a.newPage(),
+			q = await b.newPage(),
+			errors = [];
+		p.on('pageerror', (error) => errors.push(error.message));
+		q.on('pageerror', (error) => errors.push(error.message));
+		const stale = await newRetro(p);
+		await connected(p);
+		const actions = p.getByRole('region', { name: 'Action items', exact: true });
+		assert.equal(await actions.getByRole('checkbox').count(), 0);
+		assert.equal(
+			await actions.getByRole('button', { name: 'Add action', exact: false }).isDisabled(),
+			true
+		);
+		await actions.getByLabel('New action', { exact: true }).fill('   ');
+		assert.equal(
+			await actions.getByRole('button', { name: 'Add action', exact: false }).isDisabled(),
+			true
+		);
+		await actions.getByLabel('New action', { exact: true }).fill('  Schedule a follow-up 🌱  ');
+		await actions.getByLabel('New action', { exact: true }).press('Enter');
+		const checkbox = (page) =>
+			page.getByRole('checkbox', { name: 'Schedule a follow-up 🌱', exact: true });
+		await checkbox(p).waitFor();
+		assert.equal(await actions.getByLabel('New action', { exact: true }).inputValue(), '');
+		assert.equal(await checkbox(p).isChecked(), false);
+		await checkbox(p).check();
+		await q.goto(stale);
+		await connected(q);
+		await checkbox(q).waitFor();
+		await waitFor(() => checkbox(q).isChecked(), 'late join did not receive completed action');
+		await checkbox(q).uncheck();
+		await waitFor(
+			() =>
+				checkbox(p)
+					.isChecked()
+					.then((value) => !value),
+			'unchecking did not sync'
+		);
+		await q.getByLabel('New action', { exact: true }).fill('Review the release process');
+		await q.getByRole('button', { name: 'Add action', exact: false }).click();
+		await p.getByRole('checkbox', { name: 'Review the release process', exact: true }).waitFor();
+		await checkbox(p).focus();
+		await p.keyboard.press('Space');
+		await waitFor(() => checkbox(q).isChecked(), 'keyboard checking did not sync');
+		await q.reload();
+		await connected(q);
+		await waitFor(() => checkbox(q).isChecked(), 'reload lost completion status');
+		await q
+			.getByRole('button', { name: 'Remove action Review the release process', exact: true })
+			.click();
+		await p
+			.getByRole('checkbox', { name: 'Review the release process', exact: true })
+			.waitFor({ state: 'detached' });
+		await q.goto(stale);
+		await connected(q);
+		await checkbox(q).waitFor();
+		assert.equal(await q.getByRole('checkbox').count(), 1);
+		const boardBounds = await p.locator('.board').boundingBox(),
+			actionBounds = await actions.boundingBox();
+		assert.ok(
+			actionBounds.y >= boardBounds.y + boardBounds.height,
+			'actions must be below the columns'
+		);
+		await p.screenshot({ path: '/tmp/retro-actions.png', fullPage: true });
+		await p.setViewportSize({ width: 390, height: 844 });
+		await actions.scrollIntoViewIfNeeded();
+		const form = await actions.locator('.add-action-controls').boundingBox();
+		assert.ok(
+			form.x >= 0 && form.x + form.width <= 390,
+			'action form overflows the mobile viewport'
+		);
+		await p.screenshot({ path: '/tmp/retro-actions-mobile.png', fullPage: true });
+		await p.getByRole('button', { name: 'Copy link', exact: false }).click();
+		await p.getByRole('status').filter({ hasText: 'Latest link copied' }).waitFor();
+		const saved = p.url();
+		await p.close();
+		await q.close();
+		const restored = await a.newPage();
+		await restored.goto(saved);
+		await checkbox(restored).waitFor();
+		assert.equal(await checkbox(restored).isChecked(), true);
+		assert.equal(await restored.getByRole('checkbox').count(), 1);
+		await checkbox(restored).uncheck();
+		assert.equal(await checkbox(restored).isChecked(), false);
+		await restored.getByRole('button', { name: 'New retrospective', exact: false }).click();
+		await waitFor(
+			() =>
+				restored
+					.getByRole('checkbox')
+					.count()
+					.then((count) => count === 0),
+			'actions leaked into a new room'
+		);
+		assert.deepEqual(errors, []);
+	} finally {
+		await a.close();
+		await b.close();
+	}
+});
+
 test('touch users can move cards through the accessible controls', async () => {
 	const context = await browser.newContext({
 		viewport: { width: 390, height: 844 },

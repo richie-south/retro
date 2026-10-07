@@ -5,6 +5,7 @@ export type Register = { value: string | number | boolean | Location | Timer | n
 export type Snapshot = { version: 1; room: string; registers: Record<string, Register> };
 export type Column = { id: string; title: string; position: string };
 export type Card = { id: string; title: string; location: Location };
+export type Action = { id: string; title: string; completed: boolean };
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const roomPattern = /^[0-9a-f]{32}$/;
@@ -112,6 +113,12 @@ export function validateSnapshot(input: unknown): Snapshot {
 						Number(value.remaining) >= 0 &&
 						Number(value.remaining) <= Number(value.duration)));
 		if (parts.length === 3 && uuid.test(parts[1])) {
+			if (parts[0] === 'action') {
+				if (parts[2] === 'title')
+					valid = typeof value === 'string' && value.trim().length > 0 && value.length <= 500;
+				if (parts[2] === 'completed') valid = typeof value === 'boolean';
+				if (parts[2] === 'deleted') valid = value === true;
+			}
 			if (parts[0] === 'column' || parts[0] === 'card') {
 				if (parts[2] === 'title')
 					valid =
@@ -244,6 +251,45 @@ export class Model {
 	}
 	private deleted(kind: string, id: string): boolean {
 		return this.state.registers[`${kind}:${id}:deleted`]?.value === true;
+	}
+	actions(): Action[] {
+		return Object.keys(this.state.registers)
+			.filter(
+				(key) =>
+					key.startsWith('action:') &&
+					key.endsWith(':title') &&
+					!this.deleted('action', key.split(':')[1])
+			)
+			.sort(
+				(a, b) =>
+					compareClock(this.state.registers[a].clock, this.state.registers[b].clock) ||
+					a.localeCompare(b)
+			)
+			.map((key) => {
+				const id = key.split(':')[1];
+				return {
+					id,
+					title: String(this.state.registers[key].value),
+					completed: this.state.registers[`action:${id}:completed`]?.value === true
+				};
+			});
+	}
+	addAction(title: string): string | undefined {
+		const trimmed = title.trim().slice(0, 500);
+		if (!trimmed) return;
+		const id = crypto.randomUUID();
+		this.write(`action:${id}:title`, trimmed);
+		this.write(`action:${id}:completed`, false);
+		return id;
+	}
+	setActionCompleted(id: string, completed: boolean) {
+		if (!this.state.registers[`action:${id}:title`] || this.deleted('action', id)) return;
+		if ((this.state.registers[`action:${id}:completed`]?.value === true) === completed) return;
+		this.write(`action:${id}:completed`, completed);
+	}
+	deleteAction(id: string) {
+		if (!this.state.registers[`action:${id}:title`] || this.deleted('action', id)) return;
+		this.write(`action:${id}:deleted`, true);
 	}
 	columns(): Column[] {
 		return Object.keys(this.state.registers)

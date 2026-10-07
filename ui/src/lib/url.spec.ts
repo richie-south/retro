@@ -10,6 +10,11 @@ describe('URL snapshots', () => {
 		m.startTimer(300);
 		m.stopTimer();
 		const card = m.addCard(column, 'Hej 👋');
+		const action = m.addAction('Boka uppföljning 🌱')!;
+		m.setActionCompleted(action, true);
+		m.addAction('Review 日本語 notes');
+		const deletedAction = m.addAction('Removed next step')!;
+		m.deleteAction(deletedAction);
 		m.vote(crypto.randomUUID(), card, 1);
 		const deleted = m.addCard(column, 'Gone');
 		m.deleteCard(deleted);
