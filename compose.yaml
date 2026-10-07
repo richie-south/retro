@@ -1,0 +1,6 @@
+services:
+  retro:
+    build: .
+    ports:
+      - "4120:4120"
+    restart: unless-stopped

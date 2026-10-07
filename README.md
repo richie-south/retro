@@ -23,6 +23,20 @@ Open http://localhost:5173. Vite proxies API requests and WebSockets to Go on po
 
 ## Production
 
+### Docker Compose
+
+From the repository root:
+
+```sh
+docker compose up --build -d
+```
+
+Open http://localhost:4120 (or `http://<server-ip>:4120`). The image builds the UI and Go service, then runs a single Go process serving both the built UI and `/api/socket`. Port 4120 is published on all host interfaces. Node is only used during the build; the running container contains the Go binary and static UI files.
+
+Point your home server's existing HTTPS reverse proxy at port 4120 and forward WebSocket upgrades for `/api/socket`. The Compose setup includes no proxy or additional services. Run the same command again to rebuild after pulling updates; stop it with `docker compose down`.
+
+### Without Docker
+
 ```sh
 cd ui
 npm ci
