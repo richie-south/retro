@@ -43,5 +43,12 @@ export function boardMarkdown(model: Model): string {
 	} else {
 		lines.push('No columns.');
 	}
+	const actions = model.actions();
+	if (actions.length) {
+		lines.push('', '## Action items', '');
+		for (const action of actions) {
+			lines.push(`- [${action.completed ? 'x' : ' '}] ${text(action.title)}`);
+		}
+	}
 	return lines.join('\n') + '\n';
 }

@@ -456,6 +456,6 @@ export function createSnapshot(room: string): Snapshot {
 	const model = new Model({ version: 1, room, registers: {} });
 	model.setTitle('Team retrospective');
 	model.setLimit(5);
-	for (const title of ['Went well', 'Could improve', 'Actions']) model.addColumn(title);
+	for (const title of ['Went well', 'Could improve']) model.addColumn(title);
 	return model.state;
 }

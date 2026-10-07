@@ -819,7 +819,7 @@ test('shared countdown syncs starts, stops, late joins and reloads; popover dism
 	}
 });
 
-test('export dropdown downloads Markdown and CSV with current edits and shared votes', async () => {
+test('export dropdown downloads Markdown and CSV with current edits, shared votes and action status', async () => {
 	const a = await browser.newContext(),
 		b = await browser.newContext();
 	try {
@@ -840,6 +840,12 @@ test('export dropdown downloads Markdown and CSV with current edits and shared v
 			.getByRole('article', { name: 'First | card\nSecond line', exact: true })
 			.getByLabel('1 votes')
 			.waitFor();
+		await p.getByLabel('New action', { exact: true }).fill('Schedule pairing');
+		await p.getByRole('button', { name: 'Add action', exact: false }).click();
+		await q.getByRole('checkbox', { name: 'Schedule pairing', exact: true }).waitFor();
+		await q.getByLabel('New action', { exact: true }).fill('Review release');
+		await q.getByRole('button', { name: 'Add action', exact: false }).click();
+		await p.getByRole('checkbox', { name: 'Review release', exact: true }).check();
 		// Export must include the title committed by blurring directly onto the export button.
 		await p.getByLabel('Retrospective title', { exact: true }).fill('Sprint 12: review');
 		const toggle = p.getByLabel('Export', { exact: true });
@@ -861,6 +867,11 @@ test('export dropdown downloads Markdown and CSV with current edits and shared v
 				'| --- | --- | --- |',
 				'| First &#124; card<br>Second line<br>**1 vote** |  | Follow up<br>**0 votes** |',
 				'| No votes<br>**0 votes** |  |  |',
+				'',
+				'## Action items',
+				'',
+				'- [ ] Schedule pairing',
+				'- [x] Review release',
 				''
 			].join('\n')
 		);
@@ -895,7 +906,7 @@ test('export dropdown downloads Markdown and CSV with current edits and shared v
 		assert.equal(await csv.failure(), null);
 		assert.equal(
 			await readFile(await csv.path(), 'utf8'),
-			'Card,Column,Votes,Order\r\n"First | card\nSecond line",Went well,1,1\r\nNo votes,Went well,0,2\r\nFollow up,Actions,0,1\r\n'
+			'Card,Column,Votes,Order,Type,Completed\r\n"First | card\nSecond line",Went well,1,1,Card,\r\nNo votes,Went well,0,2,Card,\r\nFollow up,Actions,0,1,Card,\r\nSchedule pairing,Action items,,1,Action,false\r\nReview release,Action items,,2,Action,true\r\n'
 		);
 		await p.getByRole('status').filter({ hasText: 'CSV exported.' }).waitFor();
 		await toggle.click();
@@ -1023,6 +1034,66 @@ test('actions synchronize creation, completion and removal and restore from save
 	} finally {
 		await a.close();
 		await b.close();
+	}
+});
+
+test('card text supports clicking, word selection and drag selection independently of card dragging', async () => {
+	const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+	try {
+		const page = await context.newPage();
+		await newRetro(page);
+		const text = 'Select these words freely';
+		await addCard(page, 'Went well', text);
+		const card = page.getByRole('article', { name: text, exact: true });
+		const title = card.getByRole('textbox', { name: 'Card title', exact: true });
+		const selection = () =>
+			title.evaluate((node) => ({ start: node.selectionStart, end: node.selectionEnd }));
+		for (const width of [1440, 390]) {
+			await page.setViewportSize({ width, height: 900 });
+			await title.scrollIntoViewIfNeeded();
+			const points = await title.evaluate((node) => {
+				const bounds = node.getBoundingClientRect();
+				const style = getComputedStyle(node);
+				const canvas = document.createElement('canvas');
+				const ctx = canvas.getContext('2d');
+				ctx.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+				const left =
+					bounds.left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft);
+				return {
+					x: [0, 7, 9, 18].map(
+						(index) => left + ctx.measureText(node.value.slice(0, index)).width + 0.5
+					),
+					y:
+						bounds.top +
+						parseFloat(style.borderTopWidth) +
+						parseFloat(style.paddingTop) +
+						parseFloat(style.lineHeight) / 2
+				};
+			});
+			await page.mouse.click(points.x[1], points.y);
+			assert.deepEqual(await selection(), { start: 7, end: 7 }, 'click should place the caret');
+			await page.mouse.dblclick(points.x[2], points.y);
+			assert.equal(
+				await title.evaluate((node) => node.value.slice(node.selectionStart, node.selectionEnd)),
+				'these'
+			);
+			await page.mouse.click(points.x[0], points.y);
+			await page.mouse.down();
+			await page.mouse.move(points.x[3], points.y, { steps: 12 });
+			await page.mouse.up();
+			assert.deepEqual(await selection(), { start: 0, end: 18 }, 'drag should select text');
+			assert.equal(await page.locator('.card.dragging, .drop-indicator').count(), 0);
+		}
+		await page.setViewportSize({ width: 1440, height: 900 });
+		await card
+			.locator('.drag-handle')
+			.dragTo(page.getByRole('region', { name: 'Actions', exact: true }));
+		await page
+			.getByRole('region', { name: 'Actions', exact: true })
+			.getByRole('article', { name: text, exact: true })
+			.waitFor();
+	} finally {
+		await context.close();
 	}
 });
 

@@ -85,4 +85,34 @@ describe('Markdown export', () => {
 			'# Team retrospective\n\nVotes per person: 5\nTotal votes: 0\n\nNo columns.\n'
 		);
 	});
+
+	it('exports live actions as an ordered checklist with escaped text even without columns', () => {
+		const model = new Model(createSnapshot(room));
+		for (const column of model.columns()) model.deleteColumn(column.id);
+		model.addAction('Follow *up* | <next>\n日本語');
+		const removed = model.addAction('Removed action')!;
+		const completed = model.addAction('Review release')!;
+		model.deleteAction(removed);
+		model.setActionCompleted(completed, true);
+		const before = structuredClone(model.state);
+		expect(boardMarkdown(model)).toBe(
+			[
+				'# Team retrospective',
+				'',
+				'Votes per person: 5',
+				'Total votes: 0',
+				'',
+				'No columns.',
+				'',
+				'## Action items',
+				'',
+				'- [ ] Follow \\*up\\* &#124; &lt;next&gt;<br>日本語',
+				'- [x] Review release',
+				''
+			].join('\n')
+		);
+		expect(model.state).toEqual(before);
+		model.setActionCompleted(completed, false);
+		expect(boardMarkdown(model)).toContain('- [ ] Review release\n');
+	});
 });

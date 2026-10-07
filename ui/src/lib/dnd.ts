@@ -22,10 +22,19 @@ function accepts(data: Record<string, unknown>, room: string) {
 // Keep current parameters in closures: edits must not unregister targets mid-drag.
 export function cardDrag(element: HTMLElement, initial: Card) {
 	let params = initial;
+	const handle = element.querySelector<HTMLElement>('.drag-handle')!;
+	// A draggable ancestor can intercept native caret placement and text selection.
 	const stopDrag = draggable({
-		element,
-		dragHandle: element.querySelector('.drag-handle')!,
-		getInitialData: () => ({ type: 'retro-card', ...params })
+		element: handle,
+		getInitialData: () => ({ type: 'retro-card', ...params }),
+		onGenerateDragPreview({ nativeSetDragImage, location }) {
+			const bounds = element.getBoundingClientRect();
+			nativeSetDragImage?.(
+				element,
+				location.current.input.clientX - bounds.left,
+				location.current.input.clientY - bounds.top
+			);
+		}
 	});
 	const stopDrop = dropTargetForElements({
 		element,

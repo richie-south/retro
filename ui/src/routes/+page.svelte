@@ -114,6 +114,36 @@
 			}
 		};
 	}
+	function autosize(node: HTMLTextAreaElement, _value: string | undefined) {
+		let width = 0;
+		const resize = () => {
+			if (!node.isConnected) return;
+			node.style.height = 'auto';
+			const style = getComputedStyle(node);
+			const borders = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+			node.style.height = `${Math.ceil(node.scrollHeight + borders)}px`;
+		};
+		// Wait for editable values and bound drafts to update before measuring.
+		const schedule = () => queueMicrotask(resize);
+		const observer = new ResizeObserver(([entry]) => {
+			if (entry.contentRect.width !== width) {
+				width = entry.contentRect.width;
+				resize();
+			}
+		});
+		observer.observe(node);
+		node.addEventListener('input', resize);
+		node.addEventListener('blur', schedule);
+		schedule();
+		return {
+			update: schedule,
+			destroy() {
+				observer.disconnect();
+				node.removeEventListener('input', resize);
+				node.removeEventListener('blur', schedule);
+			}
+		};
+	}
 	function edit(action: (model: Model) => void) {
 		if (!model) return;
 		const before = structuredClone(model.state);
@@ -532,8 +562,9 @@
 										class="card-title"
 										aria-label="Card title"
 										use:editable={card.title}
+										use:autosize={card.title}
 										maxlength="500"
-										rows="3"
+										rows="1"
 										onchange={(e) => {
 											edit((m) => m.renameCard(card.id, e.currentTarget.value));
 											if (!e.currentTarget.value.trim()) e.currentTarget.value = card.title;
@@ -554,37 +585,37 @@
 												onclick={() => edit((m) => m.vote(voter, card.id, -1))}>−</button
 											>{#if card.mine}<span class="mine">{card.mine} yours</span>{/if}
 										</div>
+										<details class="move-menu">
+											<summary aria-label={`Move card ${card.title}`}>Move card</summary>
+											<div class="move-controls">
+												<button
+													class="text-button"
+													aria-label={`Move ${card.title} up`}
+													disabled={cardIndex === 0}
+													onclick={() => moveCard(card.id, column.id, -1)}>↑ Up</button
+												><button
+													class="text-button"
+													aria-label={`Move ${card.title} down`}
+													disabled={cardIndex === column.cards.length - 1}
+													onclick={() => moveCard(card.id, column.id, 1)}>↓ Down</button
+												><select
+													aria-label={`Move ${card.title} to column`}
+													value={column.id}
+													onchange={(e) => {
+														void placeCard(card.id, e.currentTarget.value, undefined, true);
+													}}
+													>{#each view!.columns as target}<option value={target.id}
+															>{target.title}</option
+														>{/each}</select
+												>
+											</div>
+										</details>
 										<button
 											class="text-button"
 											aria-label={`Delete card ${card.title}`}
 											onclick={() => deleteCard(card.id, card.title)}>×</button
 										>
 									</div>
-									<details class="move-menu">
-										<summary aria-label={`Move card ${card.title}`}>Move card</summary>
-										<div class="move-controls">
-											<button
-												class="text-button"
-												aria-label={`Move ${card.title} up`}
-												disabled={cardIndex === 0}
-												onclick={() => moveCard(card.id, column.id, -1)}>↑ Up</button
-											><button
-												class="text-button"
-												aria-label={`Move ${card.title} down`}
-												disabled={cardIndex === column.cards.length - 1}
-												onclick={() => moveCard(card.id, column.id, 1)}>↓ Down</button
-											><select
-												aria-label={`Move ${card.title} to column`}
-												value={column.id}
-												onchange={(e) => {
-													void placeCard(card.id, e.currentTarget.value, undefined, true);
-												}}
-												>{#each view!.columns as target}<option value={target.id}
-														>{target.title}</option
-													>{/each}</select
-											>
-										</div>
-									</details>
 								</article>
 							{/each}
 							{#if dragTarget?.columnId === column.id && !dragTarget.beforeId}
@@ -603,7 +634,18 @@
 								aria-label={`New card in ${column.title}`}
 								placeholder="What's on your mind?"
 								maxlength="500"
-								rows="2"
+								rows="1"
+								use:autosize={drafts[column.id]}
+								onkeydown={(event) => {
+									if (
+										event.key === 'Enter' &&
+										(event.metaKey || event.ctrlKey) &&
+										!event.isComposing
+									) {
+										event.preventDefault();
+										if (!event.repeat) addCard(column.id);
+									}
+								}}
 								bind:value={drafts[column.id]}></textarea><button
 								class="button add-button"
 								type="submit"
@@ -1101,14 +1143,14 @@
 		position: relative;
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: 9px;
 	}
 	.card {
 		position: relative;
 		border: 1px solid #e0e4d7;
 		border-radius: 7px;
 		background: #fffef9;
-		padding: 14px 13px 9px;
+		padding: 10px;
 		box-shadow: 0 2px 3px #34433207;
 	}
 	.card.dragging {
@@ -1171,24 +1213,27 @@
 		top: 0;
 	}
 	.card-title {
+		display: block;
 		width: 100%;
 		border: 0;
 		background: transparent;
 		font-size: 13px;
-		line-height: 1.7;
-		min-height: 58px;
-		resize: vertical;
-		padding: 0 18px 0 0;
+		line-height: 1.5;
+		min-height: 24px;
+		resize: none;
+		overflow: hidden;
+		padding: 0 24px 0 0;
 	}
 	.card-bottom {
 		display: flex;
+		flex-wrap: wrap;
 		align-items: center;
-		justify-content: space-between;
-		margin-top: 5px;
+		gap: 4px;
+		margin-top: 7px;
 	}
 	.vote-controls {
 		display: flex;
-		gap: 6px;
+		gap: 4px;
 		align-items: center;
 	}
 	.vote-button {
@@ -1213,17 +1258,22 @@
 	.mine {
 		font-size: 9px;
 		color: #8f9d83;
-		margin-left: 4px;
+		white-space: nowrap;
 	}
 	.move-menu {
-		margin-top: 10px;
-		border-top: 1px solid #edf0e5;
-		padding-top: 7px;
+		margin-left: auto;
 		font-size: 10px;
 		color: #98a08b;
 	}
+	.move-menu[open] {
+		order: 1;
+		flex-basis: 100%;
+		margin-left: 0;
+	}
 	.move-menu summary {
 		cursor: pointer;
+		padding: 5px 0;
+		white-space: nowrap;
 	}
 	.move-controls {
 		display: flex;
@@ -1246,16 +1296,20 @@
 		text-align: center;
 	}
 	.add-card {
-		margin-top: 15px;
+		margin-top: 12px;
 	}
 	.add-card textarea {
+		display: block;
 		width: 100%;
 		background: #f9faf4;
 		border: 1px dashed #d9dfd0;
 		border-radius: 6px;
-		padding: 10px;
+		padding: 8px 10px;
 		font-size: 12px;
-		min-height: 64px;
+		line-height: 1.5;
+		min-height: 38px;
+		resize: none;
+		overflow: hidden;
 	}
 	.add-card textarea::placeholder {
 		color: #9ba58e;

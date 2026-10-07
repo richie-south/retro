@@ -6,11 +6,21 @@ function cell(value: string | number): string {
 }
 
 export function boardCSV(model: Model): string {
-	const rows: (string | number)[][] = [['Card', 'Column', 'Votes', 'Order']];
+	const rows: (string | number)[][] = [['Card', 'Column', 'Votes', 'Order', 'Type', 'Completed']];
 	for (const column of model.columns()) {
 		for (const [index, card] of model.cards(column.id).entries()) {
-			rows.push([card.title, column.title, model.votes(card.id), index + 1]);
+			rows.push([card.title, column.title, model.votes(card.id), index + 1, 'Card', '']);
 		}
+	}
+	for (const [index, action] of model.actions().entries()) {
+		rows.push([
+			action.title,
+			'Action items',
+			'',
+			index + 1,
+			'Action',
+			action.completed ? 'true' : 'false'
+		]);
 	}
 	return rows.map((row) => row.map(cell).join(',')).join('\r\n') + '\r\n';
 }

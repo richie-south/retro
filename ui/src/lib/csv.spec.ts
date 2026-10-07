@@ -24,7 +24,7 @@ describe('CSV export', () => {
 		model.moveCard(second, well.id, first);
 		const before = structuredClone(model.state);
 		expect(boardCSV(model)).toBe(
-			'Card,Column,Votes,Order\r\nFollow up,Actions,0,1\r\nSecond,Went well,1,1\r\nFirst,Went well,0,2\r\n'
+			'Card,Column,Votes,Order,Type,Completed\r\nFollow up,Actions,0,1,Card,\r\nSecond,Went well,1,1,Card,\r\nFirst,Went well,0,2,Card,\r\n'
 		);
 		expect(model.state).toEqual(before);
 	});
@@ -35,15 +35,32 @@ describe('CSV export', () => {
 		model.renameColumn(column.id, 'Ideas, "next"');
 		model.addCard(column.id, 'Rétro 日本語\nOne, "two"\r\nThree\rFour | *five*');
 		expect(boardCSV(model)).toBe(
-			'Card,Column,Votes,Order\r\n"Rétro 日本語\nOne, ""two""\r\nThree\rFour | *five*","Ideas, ""next""",0,1\r\n'
+			'Card,Column,Votes,Order,Type,Completed\r\n"Rétro 日本語\nOne, ""two""\r\nThree\rFour | *five*","Ideas, ""next""",0,1,Card,\r\n'
 		);
 	});
 
 	it('exports just the header when the board has no cards or columns', () => {
 		const model = new Model(createSnapshot(room));
-		expect(boardCSV(model)).toBe('Card,Column,Votes,Order\r\n');
+		expect(boardCSV(model)).toBe('Card,Column,Votes,Order,Type,Completed\r\n');
 		for (const column of model.columns()) model.deleteColumn(column.id);
-		expect(boardCSV(model)).toBe('Card,Column,Votes,Order\r\n');
+		expect(boardCSV(model)).toBe('Card,Column,Votes,Order,Type,Completed\r\n');
+	});
+
+	it('exports live actions in order with completion status and escaped text even without columns', () => {
+		const model = new Model(createSnapshot(room));
+		for (const column of model.columns()) model.deleteColumn(column.id);
+		model.addAction('Rétro, "next"\nFollow up');
+		const removed = model.addAction('Removed action')!;
+		const completed = model.addAction('Review release')!;
+		model.deleteAction(removed);
+		model.setActionCompleted(completed, true);
+		const before = structuredClone(model.state);
+		expect(boardCSV(model)).toBe(
+			'Card,Column,Votes,Order,Type,Completed\r\n"Rétro, ""next""\nFollow up",Action items,,1,Action,false\r\nReview release,Action items,,2,Action,true\r\n'
+		);
+		expect(model.state).toEqual(before);
+		model.setActionCompleted(completed, false);
+		expect(boardCSV(model)).toContain('Review release,Action items,,2,Action,false\r\n');
 	});
 });
 
