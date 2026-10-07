@@ -384,9 +384,39 @@
 		<a class="brand" href="/" data-sveltekit-reload aria-label="Retro home"
 			><span class="brand-icon">r</span> retro<span class="brand-dot">.</span></a
 		>
-		<button class="button secondary small" onclick={create} disabled={loading}
-			>＋ New retrospective</button
-		>
+		{#if !loading && view}
+			<input
+				class="retro-title"
+				aria-label="Retrospective title"
+				use:editable={view.title}
+				maxlength="120"
+				onchange={(e) => {
+					edit((m) => m.setTitle(e.currentTarget.value));
+					e.currentTarget.value = model!.title;
+				}}
+			/>
+			<div class="workspace-actions">
+				<details
+					class="export-dropdown"
+					bind:this={exportMenu}
+					bind:open={exportOpen}
+					onfocusout={(event) => {
+						if (event.relatedTarget instanceof Node && !exportMenu?.contains(event.relatedTarget))
+							exportOpen = false;
+					}}
+				>
+					<summary class="button secondary" bind:this={exportToggle} aria-label="Export">
+						Export <span aria-hidden="true">▾</span>
+					</summary>
+					<div class="export-options" role="group" aria-label="Export formats">
+						<button onclick={() => exportBoard('markdown')}>Markdown (.md)</button>
+						<button onclick={() => exportBoard('csv')}>CSV (.csv)</button>
+					</div>
+				</details>
+
+				<button class="button primary" onclick={copy}>Copy link <span>↗</span></button>
+			</div>
+		{/if}
 	</header>
 
 	{#if loading}
@@ -424,46 +454,6 @@
 		</main>
 	{:else}
 		<main class="workspace">
-			<div class="workspace-heading">
-				<div class="heading-text">
-					<input
-						class="retro-title"
-						aria-label="Retrospective title"
-						use:editable={view.title}
-						maxlength="120"
-						onchange={(e) => {
-							edit((m) => m.setTitle(e.currentTarget.value));
-							e.currentTarget.value = model!.title;
-						}}
-					/>
-				</div>
-				<div class="workspace-actions">
-					<details
-						class="export-dropdown"
-						bind:this={exportMenu}
-						bind:open={exportOpen}
-						onfocusout={(event) => {
-							if (event.relatedTarget instanceof Node && !exportMenu?.contains(event.relatedTarget))
-								exportOpen = false;
-						}}
-					>
-						<summary class="button secondary" bind:this={exportToggle} aria-label="Export">
-							Export <span aria-hidden="true">▾</span>
-						</summary>
-						<div class="export-options" role="group" aria-label="Export formats">
-							<button onclick={() => exportBoard('markdown')}>Markdown (.md)</button>
-							<button onclick={() => exportBoard('csv')}>CSV (.csv)</button>
-						</div>
-					</details>
-					<button
-						class="button secondary"
-						title="Sort cards in all columns by most votes first"
-						disabled={!view.columns.some((column) => column.cards.length > 1)}
-						onclick={sortByVotes}>Sort by votes <span aria-hidden="true">↓</span></button
-					>
-					<button class="button primary" onclick={copy}>Copy link <span>↗</span></button>
-				</div>
-			</div>
 			<div class="session-bar">
 				<div class="connection">
 					{#if !connection.connected}
@@ -498,6 +488,12 @@
 						}}
 					/><span class="vote-balance">{view.remaining} left for you</span>
 				</div>
+				<button
+					class="button secondary small session-sort"
+					title="Sort cards in all columns by most votes first"
+					disabled={!view.columns.some((column) => column.cards.length > 1)}
+					onclick={sortByVotes}>Sort by votes <span aria-hidden="true">↓</span></button
+				>
 			</div>
 			{#if error}<div class="message error" role="alert">{error}</div>{/if}
 			{#if delayedConnectionError}<div class="message" role="status">
@@ -810,12 +806,13 @@
 		resize: vertical;
 	}
 	.topbar {
-		height: 88px;
+		min-height: 88px;
 		border-bottom: 1px solid #e5e7df;
-		display: flex;
+		display: grid;
+		grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr) minmax(240px, 1fr);
 		align-items: center;
-		gap: 24px;
-		padding: 0 5vw;
+		gap: 16px 24px;
+		padding: 16px 5vw;
 	}
 	.brand {
 		display: flex;
@@ -842,9 +839,6 @@
 	.brand-dot {
 		color: #698f5c;
 		margin-left: -10px;
-	}
-	.topbar > .button {
-		margin-left: auto;
 	}
 	.button {
 		border: 0;
@@ -956,24 +950,12 @@
 		margin-top: 15px;
 	}
 	.workspace {
-		padding: 38px 5vw 22px;
-	}
-	.workspace-heading {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 20px;
-	}
-	.heading-text {
-		min-width: 0;
-		flex: 1;
+		padding: 0 5vw 22px;
 	}
 	.workspace-actions {
 		display: flex;
-		flex-wrap: wrap;
-		max-width: 100%;
+		justify-self: end;
 		gap: 10px;
-		flex-shrink: 0;
 	}
 	.export-dropdown {
 		position: relative;
@@ -1012,26 +994,37 @@
 		background: #e8eddf;
 	}
 	.retro-title {
-		margin-top: 12px;
-		font-family: Georgia, serif;
-		font-size: 36px;
-		letter-spacing: -1px;
+		min-width: 0;
+		width: 100%;
 		border: 0;
+		border-radius: 5px;
 		background: transparent;
-		width: min(100%, 850px);
-		padding: 0 0 5px;
+		padding: 8px;
+		font-size: 18px;
+		font-weight: 500;
+		color: #748070;
+		text-align: center;
+		text-overflow: ellipsis;
+	}
+	.retro-title:hover,
+	.retro-title:focus {
+		background: #eff0e9;
+		color: #253b34;
 	}
 	.session-bar {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+		grid-template-columns: auto minmax(120px, 1fr) auto auto;
 		align-items: center;
 		gap: 20px;
-		border-top: 1px solid #e2e5db;
 		border-bottom: 1px solid #e2e5db;
 		padding: 17px 0;
-		margin: 24px 0 28px;
+		margin: 0 0 28px;
 		font-size: 11px;
 		color: #748070;
+	}
+	.session-sort {
+		justify-self: end;
+		gap: 10px;
 	}
 	.session-timer {
 		justify-self: center;
@@ -1496,6 +1489,32 @@
 		font-size: 11px;
 		margin-bottom: 15px;
 	}
+	@media (max-width: 1100px) {
+		.session-bar {
+			grid-template-columns: 1fr auto;
+		}
+		.session-timer {
+			justify-self: end;
+		}
+		.voting {
+			justify-self: start;
+			justify-content: flex-start;
+		}
+	}
+	@media (max-width: 900px) {
+		.topbar {
+			grid-template-columns: 1fr auto;
+		}
+		.retro-title {
+			grid-column: 1 / -1;
+			grid-row: 2;
+			font-size: 16px;
+		}
+		.workspace-actions {
+			grid-column: 2;
+			grid-row: 1;
+		}
+	}
 	@media (max-width: 700px) {
 		.actions {
 			padding: 20px 16px;
@@ -1507,12 +1526,12 @@
 			align-self: flex-start;
 		}
 		.topbar {
-			height: 73px;
-			padding: 0 20px;
+			min-height: 73px;
+			padding: 16px 20px;
+			gap: 12px;
 		}
-		.topbar > .button {
-			font-size: 10px;
-			padding: 10px;
+		.workspace-actions {
+			gap: 8px;
 		}
 		.landing {
 			padding-top: 60px;
@@ -1539,16 +1558,7 @@
 			padding: 13px 8px;
 		}
 		.workspace {
-			padding: 26px 20px;
-		}
-		.retro-title {
-			font-size: 29px;
-		}
-		.workspace-heading {
-			flex-wrap: wrap;
-		}
-		.heading-text {
-			flex-basis: 100%;
+			padding: 0 20px 26px;
 		}
 		.workspace-actions > .button,
 		.export-dropdown > summary {
@@ -1557,12 +1567,19 @@
 			gap: 10px;
 		}
 		.session-bar {
-			grid-template-columns: 1fr;
 			gap: 14px;
 		}
+		.session-sort {
+			grid-column: 2;
+			grid-row: 1;
+		}
+		.session-timer {
+			grid-column: 1 / -1;
+			grid-row: 2;
+			justify-self: center;
+		}
 		.voting {
-			justify-self: start;
-			justify-content: flex-start;
+			grid-column: 1 / -1;
 		}
 		.column {
 			min-width: 270px;

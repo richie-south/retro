@@ -1021,6 +1021,7 @@ test('actions synchronize creation, completion and removal and restore from save
 		assert.equal(await restored.getByRole('checkbox').count(), 1);
 		await checkbox(restored).uncheck();
 		assert.equal(await checkbox(restored).isChecked(), false);
+		await restored.getByRole('link', { name: 'Retro home', exact: true }).click();
 		await restored.getByRole('button', { name: 'New retrospective', exact: false }).click();
 		await waitFor(
 			() =>
