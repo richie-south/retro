@@ -6,7 +6,14 @@
 	} from '@atlaskit/pragmatic-drag-and-drop-live-region';
 	import { cardDrag, columnDrop, boardScroll, watchCards, type Destination } from '#lib/dnd.js';
 	import { createSnapshot, difference, Model, MAX_VOTES, type Snapshot } from '#lib/state.js';
-	import { decodeSession, newRoom, newSecret, URLWriter, type Session } from '#lib/url.js';
+	import {
+		decodeSession,
+		encodeRoomLink,
+		newRoom,
+		newSecret,
+		URLWriter,
+		type Session
+	} from '#lib/url.js';
 	import { SocketNetwork, type ConnectionStatus } from '#lib/realtime.js';
 	import { boardMarkdown } from '#lib/markdown.js';
 	import { boardCSV } from '#lib/csv.js';
@@ -63,7 +70,7 @@
 
 	const view = $derived.by(() => {
 		revision;
-		if (!model) return null;
+		if (!model || !hasSnapshot(model.state)) return null;
 		return {
 			title: model.title,
 			limit: model.limit,
@@ -154,12 +161,15 @@
 		writer?.schedule({ state: model.state, secret });
 		network?.broadcast(delta);
 	}
+	function hasSnapshot(state: Snapshot) {
+		return !!state.registers['settings:title'] && !!state.registers['settings:limit'];
+	}
 	function receive(state: Snapshot): Snapshot {
 		if (!model) throw new Error('No session is open.');
 		const delta = model.receive(state);
 		if (Object.keys(delta.registers).length) {
 			revision++;
-			writer?.schedule({ state: model.state, secret });
+			if (hasSnapshot(model.state)) writer?.schedule({ state: model.state, secret });
 		}
 		return delta;
 	}
@@ -201,7 +211,7 @@
 			},
 			(message) => (error = message)
 		);
-		writer.schedule({ state: model.state, secret });
+		if (hasSnapshot(model.state)) writer.schedule({ state: model.state, secret });
 		network = new SocketNetwork(model.state.room, secret, {
 			snapshot: () => model!.state,
 			receive,
@@ -209,6 +219,7 @@
 		});
 		loading = false;
 		void network.start();
+		if (!hasSnapshot(model.state)) return;
 		try {
 			await writer.flush();
 		} catch {
@@ -246,17 +257,15 @@
 		await activate({ state: createSnapshot(newRoom()), secret: newSecret() });
 	}
 	async function copy() {
+		if (!model) return;
+		const link = new URL(location.href);
+		link.hash = encodeRoomLink(model.state.room, secret);
+		shareURL = link.href;
 		try {
-			await writer!.flush();
-			shareURL = location.href;
-			try {
-				await navigator.clipboard.writeText(shareURL);
-				flash('Latest link copied. Anyone with it can join.');
-			} catch {
-				shareDialog = true;
-			}
+			await navigator.clipboard.writeText(shareURL);
+			flash('Room link copied. Anyone with it can join.');
 		} catch {
-			/* URL failures are displayed by the writer. */
+			shareDialog = true;
 		}
 	}
 	function exportBoard(format: ExportFormat) {
@@ -426,6 +435,17 @@
 				<h1>Opening your room…</h1>
 			</main>
 		{/if}
+	{:else if model && !view}
+		<main class="landing">
+			<h1>Waiting for your room…</h1>
+			<p>
+				Keep a participant connected to load the room. To restore a saved retrospective, open its
+				full browser URL.
+			</p>
+			{#if delayedConnectionError}<div class="message" role="status">
+					{delayedConnectionError}
+				</div>{/if}
+		</main>
 	{:else if !view}
 		<main class="landing">
 			<h1>Good teams<br />keep <em>reflecting.</em></h1>
@@ -500,8 +520,8 @@
 					{delayedConnectionError}
 				</div>{/if}
 			{#if urlLength > 8192}<div class="message" role="status">
-					This link is getting long. Some messaging apps may truncate it; make sure you share the
-					complete link.
+					Your saved URL is getting long. Use Copy link to invite others. To save the whole
+					retrospective, copy the complete URL from your browser bar.
 				</div>{/if}
 			<div class="board" use:boardScroll>
 				{#each view.columns as column, columnIndex (column.id)}
@@ -746,7 +766,8 @@
 			aria-label="Share retrospective"
 		>
 			<h2>Share your room</h2>
-			<p>Copy this complete link to invite your team.</p>
+			<p>Copy this room link to invite your team. Keep a participant connected so they can join.</p>
+			<p>To save the whole retrospective, copy the URL from your browser bar.</p>
 			<textarea
 				aria-label="Latest retrospective link"
 				readonly

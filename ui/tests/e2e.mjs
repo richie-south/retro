@@ -104,6 +104,98 @@ test('brand returns to the start page and browser Back restores the retrospectiv
 	}
 });
 
+test('Copy link shares only the room and key, joins through sockets, and keeps browser snapshots', async () => {
+	const host = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+	const guest = await browser.newContext();
+	const restored = await browser.newContext();
+	try {
+		const p = await host.newPage();
+		await newRetro(p);
+		await connected(p);
+		await p.getByRole('textbox', { name: 'Retrospective title' }).fill('Live room');
+		await p.getByRole('textbox', { name: 'Retrospective title' }).press('Tab');
+		await p.getByLabel('Votes per person', { exact: true }).fill('2');
+		await p.getByLabel('Votes per person', { exact: true }).press('Tab');
+		const beforeCard = p.url();
+		await addCard(p, 'Went well', 'State comes from sockets');
+		await waitFor(
+			() => Promise.resolve(p.url() !== beforeCard),
+			'browser snapshot was not updated'
+		);
+		const saved = p.url();
+		await p.getByRole('button', { name: 'Copy link', exact: false }).click();
+		await p.getByText('Room link copied. Anyone with it can join.', { exact: true }).waitFor();
+		const shared = await p.evaluate(() => navigator.clipboard.readText());
+		const params = new URLSearchParams(new URL(shared).hash.slice(1));
+		const snapshotParams = new URLSearchParams(new URL(saved).hash.slice(1));
+		assert.deepEqual([...params.keys()], ['v', 'r', 'k']);
+		assert.equal(params.get('r'), snapshotParams.get('r'));
+		assert.equal(params.get('k'), snapshotParams.get('k'));
+		assert.ok(shared.length < saved.length);
+		assert.equal(p.url(), saved);
+		const q = await guest.newPage();
+		await q.goto(shared);
+		await connected(q);
+		await waitFor(
+			() => cardTitles(q).then((titles) => titles.includes('State comes from sockets')),
+			'room link did not receive socket state'
+		);
+		assert.equal(
+			await q.getByRole('textbox', { name: 'Retrospective title' }).inputValue(),
+			'Live room'
+		);
+		assert.equal(await q.getByLabel('Votes per person', { exact: true }).inputValue(), '2');
+		assert.equal(await q.locator('.column').count(), 2);
+		assert.equal(
+			await p.getByRole('textbox', { name: 'Retrospective title' }).inputValue(),
+			'Live room'
+		);
+		assert.equal(await p.getByLabel('Votes per person', { exact: true }).inputValue(), '2');
+		await host.close();
+		await guest.close();
+		const r = await restored.newPage();
+		await r.goto(shared);
+		await r.getByRole('heading', { name: 'Waiting for your room…' }).waitFor();
+		assert.equal(r.url(), shared);
+		await r.goto(saved);
+		await waitFor(
+			() => cardTitles(r).then((titles) => titles.includes('State comes from sockets')),
+			'full browser URL did not restore without peers'
+		);
+	} finally {
+		await host.close();
+		await guest.close();
+		await restored.close();
+	}
+});
+
+test('Copy link fallback displays the same short invitation', async () => {
+	const context = await browser.newContext();
+	try {
+		await context.addInitScript(() => {
+			Object.defineProperty(navigator, 'clipboard', {
+				value: {
+					writeText: async () => {
+						throw new Error('Clipboard unavailable');
+					}
+				}
+			});
+		});
+		const page = await context.newPage();
+		const saved = await newRetro(page);
+		await page.getByRole('button', { name: 'Copy link', exact: false }).click();
+		const shared = await page
+			.getByRole('textbox', { name: 'Latest retrospective link' })
+			.inputValue();
+		const params = new URLSearchParams(new URL(shared).hash.slice(1));
+		assert.equal(params.has('s'), false);
+		assert.equal(params.get('r'), new URLSearchParams(new URL(saved).hash.slice(1)).get('r'));
+		assert.equal(page.url(), saved);
+	} finally {
+		await context.close();
+	}
+});
+
 test('two browsers merge stale links, votes, moves and continue after creator leaves', async () => {
 	const a = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] }),
 		b = await browser.newContext();
@@ -228,7 +320,7 @@ test('two browsers merge stale links, votes, moves and continue after creator le
 			'drag-and-drop did not sync'
 		);
 		await p.getByRole('button', { name: 'Copy link', exact: false }).click();
-		await p.getByText('Latest link copied. Anyone with it can join.', { exact: true }).waitFor();
+		await p.getByText('Room link copied. Anyone with it can join.', { exact: true }).waitFor();
 		const saved = await p.evaluate(() => navigator.clipboard.readText());
 		assert.match(saved, /#v=1/);
 		await a.close();
@@ -527,7 +619,7 @@ test('board sort ranks total votes in every column, preserves ties and shares th
 		);
 		assert.deepEqual(await order(p, 'Actions'), ['Top action', 'Leave here']);
 		await p.getByRole('button', { name: 'Copy link', exact: false }).click();
-		await p.getByRole('status').filter({ hasText: 'Latest link copied' }).waitFor();
+		await p.getByRole('status').filter({ hasText: 'Room link copied' }).waitFor();
 		const saved = p.url();
 		await p.screenshot({ path: '/tmp/retro-sort-by-votes.png', fullPage: true });
 		await p.close();
@@ -794,7 +886,7 @@ test('shared countdown syncs starts, stops, late joins and reloads; popover dism
 		await q.getByRole('button', { name: 'Start', exact: true }).click();
 		await waitFor(() => remaining(p).then((seconds) => seconds >= 299), 'next round did not sync');
 		await p.getByRole('button', { name: 'Copy link', exact: false }).click();
-		await p.getByRole('status').filter({ hasText: 'Latest link copied' }).waitFor();
+		await p.getByRole('status').filter({ hasText: 'Room link copied' }).waitFor();
 		const saved = p.url();
 		await p.screenshot({ path: '/tmp/retro-timer.png', fullPage: true });
 		await p.setViewportSize({ width: 390, height: 844 });
@@ -1010,7 +1102,7 @@ test('actions synchronize creation, completion and removal and restore from save
 		);
 		await p.screenshot({ path: '/tmp/retro-actions-mobile.png', fullPage: true });
 		await p.getByRole('button', { name: 'Copy link', exact: false }).click();
-		await p.getByRole('status').filter({ hasText: 'Latest link copied' }).waitFor();
+		await p.getByRole('status').filter({ hasText: 'Room link copied' }).waitFor();
 		const saved = p.url();
 		await p.close();
 		await q.close();

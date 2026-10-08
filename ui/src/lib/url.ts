@@ -24,12 +24,16 @@ export function newSecret(): string {
 	return base64url(crypto.getRandomValues(new Uint8Array(32)));
 }
 
+export function encodeRoomLink(room: string, secret: string): string {
+	return `#v=1&r=${room}&k=${secret}`;
+}
+
 export async function encodeSession(session: Session): Promise<string> {
 	const bytes = new TextEncoder().encode(JSON.stringify(session.state));
 	const compressed = await new Response(
 		new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'))
 	).arrayBuffer();
-	return `#v=1&r=${session.state.room}&k=${session.secret}&s=${base64url(new Uint8Array(compressed))}`;
+	return `${encodeRoomLink(session.state.room, session.secret)}&s=${base64url(new Uint8Array(compressed))}`;
 }
 
 export async function decodeSession(hash: string): Promise<Session> {
@@ -44,11 +48,12 @@ export async function decodeSession(hash: string): Promise<Session> {
 			!roomPattern.test(room) ||
 			!secret ||
 			!/^[A-Za-z0-9_-]{43}$/.test(secret) ||
-			!data ||
-			data.length > MAX_SNAPSHOT_BYTES * 2
+			(data !== null && (!data || data.length > MAX_SNAPSHOT_BYTES * 2))
 		)
 			throw new Error('Invalid or unsupported link.');
 		if (unbase64url(secret).length !== 32) throw new Error('Invalid session secret.');
+		// Join with no local registers so fresh defaults cannot overwrite the live room.
+		if (data === null) return { state: { version: 1, room, registers: {} }, secret };
 		const reader = new Blob([unbase64url(data)])
 			.stream()
 			.pipeThrough(new DecompressionStream('gzip'))

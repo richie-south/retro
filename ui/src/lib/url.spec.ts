@@ -1,8 +1,37 @@
 import { describe, expect, it } from 'vitest';
 import { createSnapshot, Model } from './state';
-import { decodeSession, encodeSession, newSecret, URLWriter } from './url';
+import { decodeSession, encodeRoomLink, encodeSession, newSecret, URLWriter } from './url';
 const room = 'a'.repeat(32);
 describe('URL snapshots', () => {
+	it('joins a short room link with no registers to overwrite the live state', async () => {
+		const secret = newSecret();
+		const hash = encodeRoomLink(room, secret);
+		expect(new URLSearchParams(hash.slice(1)).has('s')).toBe(false);
+		const session = await decodeSession(hash);
+		expect(session).toEqual({ state: { version: 1, room, registers: {} }, secret });
+		const host = new Model(createSnapshot(room));
+		host.setTitle('Live room');
+		host.setLimit(2);
+		host.addCard(host.columns()[0].id, 'Existing card');
+		const original = structuredClone(host.state);
+		host.receive(session.state);
+		expect(host.state).toEqual(original);
+		const guest = new Model(session.state);
+		guest.receive(host.state);
+		expect(guest.state).toEqual(original);
+	});
+	it('validates room links and rejects an explicitly empty snapshot', async () => {
+		const secret = newSecret();
+		for (const hash of [
+			encodeRoomLink('bad-room', secret),
+			encodeRoomLink(room, 'bad-secret'),
+			`#v=2&r=${room}&k=${secret}`,
+			`#v=1&r=${room}`,
+			`${encodeRoomLink(room, secret)}&s=`
+		]) {
+			await expect(decodeSession(hash)).rejects.toThrow('Cannot open retrospective');
+		}
+	});
 	it('round-trips full Unicode state including votes and tombstones', async () => {
 		const m = new Model(createSnapshot(room));
 		const column = m.columns()[0].id;
